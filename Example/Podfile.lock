@@ -1,0 +1,25 @@
+PODS:
+  - MJRefresh (3.7.9)
+  - ZHHMediaScrollView (0.0.1):
+    - ZHHMediaScrollView/Core (= 0.0.1)
+  - ZHHMediaScrollView/Core (0.0.1)
+
+DEPENDENCIES:
+  - MJRefresh
+  - ZHHMediaScrollView (from `../`)
+
+SPEC REPOS:
+  trunk:
+    - MJRefresh
+
+EXTERNAL SOURCES:
+  ZHHMediaScrollView:
+    :path: "../"
+
+SPEC CHECKSUMS:
+  MJRefresh: ff9e531227924c84ce459338414550a05d2aea78
+  ZHHMediaScrollView: b2a4edbe319a40adf4677571d9f9046fb7a2ae3c
+
+PODFILE CHECKSUM: 7d58f5113f7f58b480742f1fb8442ad4aba7b6c3
+
+COCOAPODS: 1.16.2
