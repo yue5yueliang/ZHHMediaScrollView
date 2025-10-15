@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'ZHHMediaScrollView'
-  s.version          = '0.0.1'
+  s.version          = '0.0.2'
   s.summary          = '一个简单易用的媒体滚动视图组件。'
 
   s.description      = <<-DESC
