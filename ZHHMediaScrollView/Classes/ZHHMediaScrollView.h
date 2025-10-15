@@ -96,6 +96,9 @@ NS_ASSUME_NONNULL_BEGIN
 // 移除当前页面，切换到下一个页面，如果当前是最后一个，则切换到上一个页面
 - (void)removeCurrentPageAnimated:(BOOL)animated;
 
+// 性能优化：预加载cell，提升滑动流畅性
+- (void)preloadCellWithIdentifier:(NSString *)identifier;
+
 @end
 
 NS_ASSUME_NONNULL_END

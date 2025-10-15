@@ -9,10 +9,10 @@
 #import "ZHHMediaScrollView.h"
 
 /// cell更新类型
-typedef NS_ENUM(NSUInteger, GKVideoCellUpdateType) {
-    GKVideoCellUpdateType_Top,  // 显示topCell，更新上中
-    GKVideoCellUpdateType_Ctr,  // 显示ctrCell，更新上中下
-    GKVideoCellUpdateType_Btm   // 显示btmCell，更新中下
+typedef NS_ENUM(NSUInteger, ZHHMediaCellUpdateType) {
+    ZHHMediaCellUpdateType_Top,  // 显示topCell，更新上中
+    ZHHMediaCellUpdateType_Ctr,  // 显示ctrCell，更新上中下
+    ZHHMediaCellUpdateType_Btm   // 显示btmCell，更新中下
 };
 
 @interface ZHHMediaScrollView()<UIScrollViewDelegate>
@@ -76,6 +76,14 @@ typedef NS_ENUM(NSUInteger, GKVideoCellUpdateType) {
 // 存放cell标识和对应的可重用view列表
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableSet *> *reusableCells;
 
+// 性能优化相关属性
+@property (nonatomic, assign) CGFloat cachedViewWidth;
+@property (nonatomic, assign) CGFloat cachedViewHeight;
+@property (nonatomic, assign) CGFloat cachedViewHeight2; // 2 * viewHeight
+@property (nonatomic, assign) BOOL needsLayoutUpdate;
+@property (nonatomic, strong) dispatch_queue_t performanceQueue;
+@property (nonatomic, strong) NSMutableSet<NSString *> *preloadedCellIdentifiers;
+
 @end
 
 @implementation ZHHMediaScrollView
@@ -110,6 +118,7 @@ typedef NS_ENUM(NSUInteger, GKVideoCellUpdateType) {
     self.cellNibs = [NSMutableDictionary dictionary];
     self.cellClasses = [NSMutableDictionary dictionary];
     self.reusableCells = [NSMutableDictionary dictionary];
+    self.preloadedCellIdentifiers = [NSMutableSet set];
     
     [self initValue];
 }
@@ -248,6 +257,8 @@ typedef NS_ENUM(NSUInteger, GKVideoCellUpdateType) {
     [self clearWithIdentifier:identifier];
     [self.cellClasses setValue:cellClass forKey:identifier];
     [self.reusableCells setValue:[NSMutableSet set] forKey:identifier];
+    
+    [self preloadCellWithIdentifier:identifier];
 }
 
 - (__kindof ZHHMediaScrollViewCell *)dequeueReusableCellWithIdentifier:(NSString *)identifier forIndexPath:(NSIndexPath *)indexPath {
@@ -323,14 +334,14 @@ typedef NS_ENUM(NSUInteger, GKVideoCellUpdateType) {
     self.changeIndex = index;
     
     // 更新cell
-    GKVideoCellUpdateType type = GKVideoCellUpdateType_Top;
+    ZHHMediaCellUpdateType type = ZHHMediaCellUpdateType_Top;
     if (self.totalCount >= 3) {
         if (index == 0) {
-            type = GKVideoCellUpdateType_Top;
+            type = ZHHMediaCellUpdateType_Top;
         }else if (index == self.totalCount - 1) {
-            type = GKVideoCellUpdateType_Btm;
+            type = ZHHMediaCellUpdateType_Btm;
         }else {
-            type = GKVideoCellUpdateType_Ctr;
+            type = ZHHMediaCellUpdateType_Ctr;
         }
         [self createCellWithType:type index:index];
     }
@@ -559,17 +570,33 @@ typedef NS_ENUM(NSUInteger, GKVideoCellUpdateType) {
     [self.reusableCells setValue:cells forKey:identifier];
 }
 
+- (void)preloadCellWithIdentifier:(NSString *)identifier {
+    if ([self.preloadedCellIdentifiers containsObject:identifier]) {
+        return; // 已经预加载过
+    }
+    
+    [self.preloadedCellIdentifiers addObject:identifier];
+    
+    // 预创建2个cell实例，提升复用效率
+    for (int i = 0; i < 2; i++) {
+        ZHHMediaScrollViewCell *cell = [self dequeueReusableCellWithIdentifier:identifier];
+        if (cell) {
+            [self saveReusableCell:cell];
+        }
+    }
+}
+
 #pragma mark - create and update cell
 - (void)createCellsIfNeeded {
-    GKVideoCellUpdateType type = GKVideoCellUpdateType_Top;
+    ZHHMediaCellUpdateType type = ZHHMediaCellUpdateType_Top;
     NSInteger index = self.changeIndex;
     if (self.totalCount >= 3) {
         if (index == 0) {
-            type = GKVideoCellUpdateType_Top;
+            type = ZHHMediaCellUpdateType_Top;
         }else if (index == self.totalCount - 1) {
-            type = GKVideoCellUpdateType_Btm;
+            type = ZHHMediaCellUpdateType_Btm;
         }else {
-            type = GKVideoCellUpdateType_Ctr;
+            type = ZHHMediaCellUpdateType_Ctr;
             if (self.currentCell && self.currentCell == self.btmCell) {
                 if (self.contentOffset.y > self.viewHeight * 2) return;
                 [self updateContentOffset];
@@ -580,8 +607,8 @@ typedef NS_ENUM(NSUInteger, GKVideoCellUpdateType) {
     [self createCellWithType:type index:index];
 }
 
-- (void)createCellWithType:(GKVideoCellUpdateType)type index:(NSInteger)index {
-    if (type == GKVideoCellUpdateType_Top) {
+- (void)createCellWithType:(ZHHMediaCellUpdateType)type index:(NSInteger)index {
+    if (type == ZHHMediaCellUpdateType_Top) {
         [self createTopCellWithIndex:0];
         if (self.totalCount > 1) {
             [self createCtrCellWithIndex:1];
@@ -590,7 +617,7 @@ typedef NS_ENUM(NSUInteger, GKVideoCellUpdateType) {
             [self saveReusableCell:self.btmCell];
             self.btmCell = nil;
         }
-    }else if (type == GKVideoCellUpdateType_Ctr) {
+    }else if (type == ZHHMediaCellUpdateType_Ctr) {
         if (self.contentOffset.y > self.viewHeight * 2) {
             [self createTopCellWithIndex:index - 2];
             [self createCtrCellWithIndex:index - 1];
@@ -600,7 +627,7 @@ typedef NS_ENUM(NSUInteger, GKVideoCellUpdateType) {
             [self createCtrCellWithIndex:index];
             [self createBtmCellWithIndex:index + 1];
         }
-    }else if (type == GKVideoCellUpdateType_Btm) {
+    }else if (type == ZHHMediaCellUpdateType_Btm) {
         if (self.topCell) {
             [self saveReusableCell:self.topCell];
             self.topCell = nil;
@@ -824,6 +851,7 @@ typedef NS_ENUM(NSUInteger, GKVideoCellUpdateType) {
     if (!cell) return;
     if (self.lastWillDisplayCell == cell) return;
     self.lastWillDisplayCell = cell;
+    
     if ([self.userDelegate respondsToSelector:@selector(scrollView:willDisplayCell:forRowAtIndexPath:)]) {
         NSIndexPath *indexPath = [NSIndexPath indexPathForRow:index inSection:0];
         [self.userDelegate scrollView:self willDisplayCell:cell forRowAtIndexPath:indexPath];
@@ -835,6 +863,7 @@ typedef NS_ENUM(NSUInteger, GKVideoCellUpdateType) {
     if (!cell) return;
     if (self.lastEndDisplayCell == cell) return;
     self.lastEndDisplayCell = cell;
+    
     if ([self.userDelegate respondsToSelector:@selector(scrollView:didEndDisplayingCell:forRowAtIndexPath:)]) {
         NSIndexPath *indexPath = [NSIndexPath indexPathForRow:index inSection:0];
         [self.userDelegate scrollView:self didEndDisplayingCell:cell forRowAtIndexPath:indexPath];
@@ -996,6 +1025,7 @@ typedef NS_ENUM(NSUInteger, GKVideoCellUpdateType) {
 
 - (void)fixContentOffsetY:(CGFloat *)offsetY  {
     CGFloat viewH = self.viewHeight;
+    CGFloat viewH2 = viewH * 2;
     
     CGFloat diff = fabs(*offsetY - 0);
     if (diff > 0 && diff < 1) {
@@ -1009,10 +1039,10 @@ typedef NS_ENUM(NSUInteger, GKVideoCellUpdateType) {
         [self updateContentOffset:CGPointMake(0, viewH)];
     }
     
-    diff = fabs(*offsetY - 2 * viewH);
+    diff = fabs(*offsetY - viewH2);
     if (diff > 0 && diff < 1) {
-        *offsetY = 2 * viewH;
-        [self updateContentOffset:CGPointMake(0, 2 * viewH)];
+        *offsetY = viewH2;
+        [self updateContentOffset:CGPointMake(0, viewH2)];
     }
 }
 
@@ -1025,27 +1055,25 @@ typedef NS_ENUM(NSUInteger, GKVideoCellUpdateType) {
 @implementation ZHHMediaScrollView (UIScrollView)
 
 - (void)scrollViewDidScroll:(UIScrollView *)scrollView {
-    if ([self.userDelegate respondsToSelector:@selector(scrollViewDidScroll:)]) {
-        [self.userDelegate scrollViewDidScroll:scrollView];
-    }
     if (self.isChanging) return;
     if (self.isChangeOffset) {
         self.isChangeOffset = NO;
         return;
     }
-    // 处理cell显示
-    [self handleWillDisplayCell];
     
     CGFloat offsetY = scrollView.contentOffset.y;
     CGFloat viewH = self.viewHeight;
+    CGFloat viewH2 = self.viewHeight * 2;
     
-    // 小于等于3个，不用处理
+    // 小于等于3个，不用处理复杂的cell切换逻辑
     if (self.totalCount <= 3) {
         if (self.lastCount > 0 && self.lastCount < self.totalCount) {
             [self delayUpdateCellWithIndex:NSNotFound];
-        }else {
+        } else {
             self.lastCount = self.totalCount;
         }
+        // 延迟调用代理方法，避免频繁回调
+        [self performSelector:@selector(callScrollDelegate:) withObject:scrollView afterDelay:0.016]; // ~60fps
         return;
     }
     
@@ -1064,66 +1092,91 @@ typedef NS_ENUM(NSUInteger, GKVideoCellUpdateType) {
     }
     
     // 判断是从中间视图上滑还是下滑
-    if (offsetY >= 2 * viewH) { // 上滑
-        if (self.currentCell != self.btmCell && (self.isDragging || self.isDecelerating || self.isChangeToNext)) {
-            if (self.isChangeToNext) self.isChangeToNext = NO;
-            [self didEndDisplayingCell:self.currentCell forIndex:self.currentIndex];
-        }
-        if (self.index == 0) {
-            if (self.lastCount > 0) {
-                [self delayUpdateCellWithIndex:2];
-            }else {
-                self.index = 2;
-                [self updateContentOffset:CGPointMake(0, viewH)];
-                self.changeIndex = self.index;
-                [self updateUpScrollCellWithIndex:self.index];
-            }
-        }else {
-            if (self.index < self.totalCount - 1) {
-                self.index += 1;
-                if (self.index == self.totalCount - 1) {
-                    if (self.lastCount > 0 && self.lastCount < self.totalCount) {
-                        [self delayUpdateCellWithIndex:self.lastCount - 1];
-                    }else {
-                        self.changeIndex = self.index;
-                        self.lastCount = self.totalCount;
-                    }
-                }else {
-                    if (self.lastCount > 0 && self.lastCount < self.totalCount) {
-                        [self delayUpdateCellWithIndex:(self.index == 2 ? 2 : self.lastCount - 1)];
-                    }else {
-                        if (self.isDelay) return;
-                        [self updateContentOffset:CGPointMake(0, viewH)];
-                        self.changeIndex = self.index;
-                        [self updateUpScrollCellWithIndex:self.index];
-                    }
-                }
-            }
-        }
-    }else if (offsetY <= 0) { // 下滑
-        if (self.currentCell != self.topCell && (self.isDragging || self.isDecelerating || self.isChangeToNext)) {
-            if (self.isChangeToNext) self.isChangeToNext = NO;
-            [self didEndDisplayingCell:self.currentCell forIndex:self.currentIndex];
-        }
-        self.lastCount = 0;
-        if (self.index == 1) {
-            self.index -= 1;
-            self.changeIndex = self.index;
-            [self updateDownScrollCellWithIndex:self.index];
-        }else {
-            if (self.index == self.totalCount - 1) {
-                self.index -= 2;
-            }else {
-                self.index -= 1;
-            }
-            [self updateContentOffset:CGPointMake(0, viewH)];
-            self.changeIndex = self.index;
-            [self updateDownScrollCellWithIndex:self.index];
-        }
-    }else {
+    if (offsetY >= viewH2) { // 上滑
+        [self handleUpScrollWithOffset:offsetY viewHeight:viewH];
+    } else if (offsetY <= 0) { // 下滑
+        [self handleDownScrollWithOffset:offsetY viewHeight:viewH];
+    } else {
         if (self.lastCount > 0 && self.lastCount < self.totalCount) {
             [self delayUpdateCellWithIndex:NSNotFound];
         }
+    }
+    
+    // 处理cell显示
+    [self handleWillDisplayCell];
+    
+    // 延迟调用代理方法，避免频繁回调
+    [self performSelector:@selector(callScrollDelegate:) withObject:scrollView afterDelay:0.016];
+}
+
+// 分离上滑处理逻辑
+- (void)handleUpScrollWithOffset:(CGFloat)offsetY viewHeight:(CGFloat)viewH {
+    if (self.currentCell != self.btmCell && (self.isDragging || self.isDecelerating || self.isChangeToNext)) {
+        if (self.isChangeToNext) self.isChangeToNext = NO;
+        [self didEndDisplayingCell:self.currentCell forIndex:self.currentIndex];
+    }
+    
+    if (self.index == 0) {
+        if (self.lastCount > 0) {
+            [self delayUpdateCellWithIndex:2];
+        } else {
+            self.index = 2;
+            [self updateContentOffset:CGPointMake(0, viewH)];
+            self.changeIndex = self.index;
+            [self updateUpScrollCellWithIndex:self.index];
+        }
+    } else {
+        if (self.index < self.totalCount - 1) {
+            self.index += 1;
+            if (self.index == self.totalCount - 1) {
+                if (self.lastCount > 0 && self.lastCount < self.totalCount) {
+                    [self delayUpdateCellWithIndex:self.lastCount - 1];
+                } else {
+                    self.changeIndex = self.index;
+                    self.lastCount = self.totalCount;
+                }
+            } else {
+                if (self.lastCount > 0 && self.lastCount < self.totalCount) {
+                    [self delayUpdateCellWithIndex:(self.index == 2 ? 2 : self.lastCount - 1)];
+                } else {
+                    if (self.isDelay) return;
+                    [self updateContentOffset:CGPointMake(0, viewH)];
+                    self.changeIndex = self.index;
+                    [self updateUpScrollCellWithIndex:self.index];
+                }
+            }
+        }
+    }
+}
+
+// 分离下滑处理逻辑
+- (void)handleDownScrollWithOffset:(CGFloat)offsetY viewHeight:(CGFloat)viewH {
+    if (self.currentCell != self.topCell && (self.isDragging || self.isDecelerating || self.isChangeToNext)) {
+        if (self.isChangeToNext) self.isChangeToNext = NO;
+        [self didEndDisplayingCell:self.currentCell forIndex:self.currentIndex];
+    }
+    
+    self.lastCount = 0;
+    if (self.index == 1) {
+        self.index -= 1;
+        self.changeIndex = self.index;
+        [self updateDownScrollCellWithIndex:self.index];
+    } else {
+        if (self.index == self.totalCount - 1) {
+            self.index -= 2;
+        } else {
+            self.index -= 1;
+        }
+        [self updateContentOffset:CGPointMake(0, viewH)];
+        self.changeIndex = self.index;
+        [self updateDownScrollCellWithIndex:self.index];
+    }
+}
+
+// 延迟调用代理方法
+- (void)callScrollDelegate:(UIScrollView *)scrollView {
+    if ([self.userDelegate respondsToSelector:@selector(scrollViewDidScroll:)]) {
+        [self.userDelegate scrollViewDidScroll:scrollView];
     }
 }
 
