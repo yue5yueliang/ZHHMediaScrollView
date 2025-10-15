@@ -1,7 +1,7 @@
 PODS:
-  - ZHHMediaScrollView (0.0.1):
-    - ZHHMediaScrollView/Core (= 0.0.1)
-  - ZHHMediaScrollView/Core (0.0.1)
+  - ZHHMediaScrollView (0.0.2):
+    - ZHHMediaScrollView/Core (= 0.0.2)
+  - ZHHMediaScrollView/Core (0.0.2)
 
 DEPENDENCIES:
   - ZHHMediaScrollView (from `../`)
@@ -11,7 +11,7 @@ EXTERNAL SOURCES:
     :path: "../"
 
 SPEC CHECKSUMS:
-  ZHHMediaScrollView: b2a4edbe319a40adf4677571d9f9046fb7a2ae3c
+  ZHHMediaScrollView: c15e5d00f34a5838de9e19a0145ecbf44a610ffa
 
 PODFILE CHECKSUM: 05446341d3235efcd522cb0ea8f6ff9f0f42d633
 
